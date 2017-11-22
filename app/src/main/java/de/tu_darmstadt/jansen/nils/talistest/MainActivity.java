@@ -11,6 +11,8 @@ import android.location.Location;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.media.MediaRecorder;
+import android.media.MediaScannerConnection;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.support.annotation.NonNull;
@@ -20,7 +22,6 @@ import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
@@ -31,6 +32,7 @@ import com.google.android.gms.location.LocationServices;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
@@ -52,12 +54,14 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     private AudioManager aManager;
     private boolean wantToRecord = false;
     private GoogleApiClient googleApiClient;
-    private long locationInterval = 30000;
+    private long locationInterval = 10000;
     private LocationRequest locationRequest;
     private Location currentLocation;
     private String currentTime;
     private DateFormat dateFormat;
-    private final String datePattern = "yyyy-mm-dd-kk-mm-ss";
+    private final String datePattern = "yyyy-MM-dd-kk-mm-ss";
+    File audioFile;
+    File locationFile;
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
@@ -88,9 +92,7 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
 
     private void startRecording() {
         if (isExternalStorageWritable()) {
-            filePath = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + File.separator + "talistest");
-            filePath.mkdirs();
-            Log.e(LOG_TAG, filePath.getAbsolutePath());
+            filePath = new File(Environment.getExternalStorageDirectory(), "talistest");
         } else {
             Toast.makeText(getApplicationContext(), "External storage not writable", Toast.LENGTH_LONG).show();
             return;
@@ -101,11 +103,12 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         mRecorder = new MediaRecorder();
         mRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
         mRecorder.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP);
-        File audioFile = new File(filePath, fileName + ".3gp");
+        audioFile = new File(filePath, fileName + ".3gp");
 
         if (!audioFile.exists()) {
             try {
                 audioFile.createNewFile();
+
             } catch (IOException e) {
                 Log.e(LOG_TAG, e.getMessage());
             }
@@ -117,7 +120,7 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
             mRecorder.prepare();
             startLocationUpdates();
             mRecorder.start();
-            Log.e(LOG_TAG, audioFile.getAbsolutePath());
+            Log.d(LOG_TAG, audioFile.getAbsolutePath());
         } catch (IOException e) {
             Log.e(LOG_TAG, "MediaRecorder.prepare() failed: " + e.getMessage());
             Toast.makeText(getApplicationContext(), "MediaRecorder.prepare() failed", Toast.LENGTH_LONG).show();
@@ -127,9 +130,28 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
 
     private void stopRecording() {
         mRecorder.stop();
+        MediaScannerConnection.scanFile(this, new String[]{audioFile.getAbsolutePath(), locationFile.getAbsolutePath()}, null, new MediaScannerConnection.OnScanCompletedListener() {
+            @Override
+            public void onScanCompleted(String path, Uri uri) {
+                Log.d(LOG_TAG, path + " successfully scanned");
+            }
+        });
         mRecorder.release();
         mRecorder = null;
         stopLocationUpdates();
+        OutputStream outputStream = null;
+        try {
+            try {
+                outputStream = new FileOutputStream(locationFile, true);
+                outputStream.write(("</trkseg></trk>\n" +
+                        "</gpx>").getBytes());
+                //outputStream.write((currentTime + " " + location.getLatitude() + " " + location.getLongitude() + "\n").getBytes());
+            } finally {
+                outputStream.close();
+            }
+        } catch (IOException e) {
+            Log.e(LOG_TAG, e.getMessage());
+        }
     }
 
     private void startPlaying() {
@@ -165,17 +187,6 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         LocationServices.FusedLocationApi.removeLocationUpdates(googleApiClient, this);
     }
 
-    @SuppressLint("MissingPermission")
-    private void getLocation() {
-        //permission is checked by function above
-        currentLocation = LocationServices.FusedLocationApi.getLastLocation(googleApiClient);
-        if (currentLocation != null) {
-            ((TextView) findViewById(R.id.textView_coordinates)).setText(currentLocation.toString());
-        } else {
-            Toast.makeText(getApplicationContext(), "Location = null", Toast.LENGTH_LONG).show();
-        }
-    }
-
 
     public boolean isExternalStorageWritable() {
         return Environment.MEDIA_MOUNTED.equals(Environment.getExternalStorageState());
@@ -208,7 +219,8 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
             @Override
             public void onClick(View v) {
                 if (!isRecording) {
-                    if (connected) {
+                    //TODO
+                    if (true) {
                         isRecording = true;
                         startRecording();
                         buttonRecord.setText("Stop recording");
@@ -243,12 +255,7 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
             }
         });
 
-        findViewById(R.id.textView_coordinates).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                getLocation();
-            }
-        });
+
 
     }
 
@@ -335,19 +342,24 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         currentLocation = location;
         Date date = Calendar.getInstance().getTime();
         currentTime = dateFormat.format(date);
-        File locationFile = new File(filePath, fileName + ".txt");
+        locationFile = new File(filePath, fileName + ".gpx");
         FileOutputStream outputStream = null;
         if (!locationFile.exists()) {
             try {
                 locationFile.createNewFile();
+                outputStream = new FileOutputStream(locationFile, false);
+                outputStream.write(("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+                        "<gpx version=\"1.0\">\n" +
+                        "\t<trk><name>Route from " + fileName + "</name><number>1</number><trkseg>\n").getBytes());
             } catch (IOException e) {
                 Log.e(LOG_TAG, e.getMessage());
             }
         }
         try {
             try {
-                outputStream = new FileOutputStream(locationFile);
-                outputStream.write((currentTime + " " + location.getAltitude() + " " + location.getLongitude()).getBytes());
+                outputStream = new FileOutputStream(locationFile, true);
+                outputStream.write(("<trkpt lat=\"" + location.getLatitude() + "\" lon=\"" + location.getLongitude() + "\"><time>" + currentTime + "</time></trkpt>\n").getBytes());
+                //outputStream.write((currentTime + " " + location.getLatitude() + " " + location.getLongitude() + "\n").getBytes());
             } finally {
                 outputStream.close();
             }
