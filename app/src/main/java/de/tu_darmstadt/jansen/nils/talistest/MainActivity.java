@@ -2,6 +2,7 @@ package de.tu_darmstadt.jansen.nils.talistest;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.Activity;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -62,18 +63,10 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     private final String datePattern = "yyyy-MM-dd-kk-mm-ss";
     File audioFile;
     File locationFile;
+    private static final int RC_READ_FILE = 42;
+    public static final String EXTRA_COORDS = "de.tu_darmstadt.jansen.nils.talistest.COORDS";
 
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        switch (requestCode) {
-            case REQUEST_AUDIO_LOCATION_PERMISSIONS:
-                permissionToRecordAccepted = grantResults[0] == PackageManager.PERMISSION_GRANTED;
-                break;
-        }
-        if (!permissionToRecordAccepted) finish();
 
-    }
 
     private BroadcastReceiver bluetoothScoReceiver = new BroadcastReceiver() {
         @Override
@@ -192,6 +185,16 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         return Environment.MEDIA_MOUNTED.equals(Environment.getExternalStorageState());
     }
 
+    /**
+     * Opens document searching dialogue and limits the options to images
+     */
+    private void performFileSearch() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        startActivityForResult(intent, RC_READ_FILE);
+    }
+
     //Default methods
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -255,7 +258,13 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
             }
         });
 
-
+        final Button buttonMap = findViewById(R.id.button_map);
+        buttonMap.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                performFileSearch();
+            }
+        });
 
     }
 
@@ -368,4 +377,30 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         }
     }
 
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        switch (requestCode) {
+            case REQUEST_AUDIO_LOCATION_PERMISSIONS:
+                permissionToRecordAccepted = grantResults[0] == PackageManager.PERMISSION_GRANTED;
+                break;
+        }
+        if (!permissionToRecordAccepted) finish();
+
+    }
+
+    public void onActivityResult(int requestCode, int resultCode, Intent intent) {
+        super.onActivityResult(requestCode, resultCode, intent);
+        if (requestCode == RC_READ_FILE) {
+            if (resultCode == Activity.RESULT_OK) {
+                if (intent != null) {
+
+                    Intent intentMap = new Intent(this, MapActivity.class);
+                    intentMap.putExtra(EXTRA_COORDS, intent.getData());
+                    startActivity(intentMap);
+                }
+            }
+        }
+    }
 }
