@@ -60,14 +60,21 @@ import java.util.Calendar;
 import java.util.Date;
 
 public class MainActivity extends AppCompatActivity implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener, com.google.android.gms.location.LocationListener {
+    public static final String EXTRA_COORDS = "de.tu_darmstadt.jansen.nils.talistest.COORDS";
+    private static final int REQUEST_AUDIO_LOCATION_PERMISSIONS = 200;
+    private static final int RC_READ_FILE = 42;
+    private static final int RC_SIGN_IN = 69;
     private final String LOG_TAG = "Talistest";
+    private final String[] permissions = {Manifest.permission.RECORD_AUDIO, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE};
+    private final String datePattern = "yyyy-MM-dd-kk-mm-ss";
+    File audioFile;
+    File locationFile;
+    Boolean toggle = false;
     private boolean isRecording = false;
     private boolean isPlaying = false;
     private MediaRecorder mRecorder = null;
     private MediaPlayer mPlayer = null;
-    private static final int REQUEST_AUDIO_LOCATION_PERMISSIONS = 200;
     private boolean permissionToRecordAccepted = false;
-    private final String[] permissions = {Manifest.permission.RECORD_AUDIO, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE};
     private File filePath;
     private String fileName;
     private boolean connected = false;
@@ -80,18 +87,9 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     private Location currentLocation;
     private String currentTime;
     private DateFormat dateFormat;
-    private final String datePattern = "yyyy-MM-dd-kk-mm-ss";
-    File audioFile;
-    File locationFile;
-    private static final int RC_READ_FILE = 42;
-    private static final int RC_SIGN_IN = 69;
-    public static final String EXTRA_COORDS = "de.tu_darmstadt.jansen.nils.talistest.COORDS";
     private GoogleSignInClient googleSignInClient;
     private DriveClient driveClient;
     private DriveResourceClient driveResourceClient;
-    Boolean toggle = false;
-
-
     private BroadcastReceiver bluetoothScoReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -162,7 +160,6 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
                 outputStream = new FileOutputStream(locationFile, true);
                 outputStream.write(("</trkseg></trk>\n" +
                         "</gpx>").getBytes());
-                //outputStream.write((currentTime + " " + location.getLatitude() + " " + location.getLongitude() + "\n").getBytes());
             } finally {
                 outputStream.close();
             }
@@ -369,8 +366,6 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         super.onResume();
         // Ensure the SCO audio connection stays active in case the
         // current initiator stops it.
-        /*AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-        audioManager.startBluetoothSco();*/
     }
 
     @Override
@@ -433,7 +428,6 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
             try {
                 outputStream = new FileOutputStream(locationFile, true);
                 outputStream.write(("<trkpt lat=\"" + location.getLatitude() + "\" lon=\"" + location.getLongitude() + "\"><time>" + currentTime + "</time></trkpt>\n").getBytes());
-                //outputStream.write((currentTime + " " + location.getLatitude() + " " + location.getLongitude() + "\n").getBytes());
             } finally {
                 outputStream.close();
             }
@@ -514,14 +508,12 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
                             @Override
                             public void onSuccess(DriveFile driveFile) {
                                 showMessage("File uploaded to Google Drive successfully");
-                                //finish();
                             }
                         })
                 .addOnFailureListener(this, new OnFailureListener() {
                     @Override
                     public void onFailure(@NonNull Exception e) {
                         Log.e(LOG_TAG, "Unable to create file", e);
-                        //finish();
                     }
                 });
     }
