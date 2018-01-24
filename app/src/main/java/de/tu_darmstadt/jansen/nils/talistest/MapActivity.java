@@ -21,10 +21,6 @@ import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Created by Yink on 23.01.2018.
- */
-
 public class MapActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -49,6 +45,11 @@ public class MapActivity extends AppCompatActivity {
         map.getOverlayManager().add(line);
     }
 
+    /**
+     * Reads geopoints from the .gpx location file into a list
+     *
+     * @return
+     */
     private List<GeoPoint> getGeoPoints() {
         List<GeoPoint> geoPoints = new ArrayList<>();
         Uri uri = getIntent().getParcelableExtra(MainActivity.EXTRA_COORDS);

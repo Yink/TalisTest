@@ -67,9 +67,9 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     private final String LOG_TAG = "Talistest";
     private final String[] permissions = {Manifest.permission.RECORD_AUDIO, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE};
     private final String datePattern = "yyyy-MM-dd-kk-mm-ss";
-    File audioFile;
-    File locationFile;
-    Boolean toggle = false;
+    private File audioFile;
+    private File locationFile;
+    private boolean toggle = false;
     private boolean isRecording = false;
     private boolean isPlaying = false;
     private MediaRecorder mRecorder = null;
@@ -104,12 +104,14 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         }
     };
 
-
+    /**
+     * Prepares and starts mediarecorder, prepares audiofile in storage
+     */
     private void startRecording() {
         if (isExternalStorageWritable()) {
             filePath = new File(Environment.getExternalStorageDirectory(), "talistest");
         } else {
-            Toast.makeText(getApplicationContext(), "External storage not writable", Toast.LENGTH_LONG).show();
+            showMessage("External storage not writable");
             return;
         }
 
@@ -138,11 +140,14 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
             Log.d(LOG_TAG, audioFile.getAbsolutePath());
         } catch (IOException e) {
             Log.e(LOG_TAG, "MediaRecorder.prepare() failed: " + e.getMessage());
-            Toast.makeText(getApplicationContext(), "MediaRecorder.prepare() failed", Toast.LENGTH_LONG).show();
+            showMessage("MediaRecorder.prepare() failed");
         }
 
     }
 
+    /**
+     * Stops mediarecorder, saves audio and location files
+     */
     private void stopRecording() {
         mRecorder.stop();
         MediaScannerConnection.scanFile(this, new String[]{audioFile.getAbsolutePath(), locationFile.getAbsolutePath()}, null, new MediaScannerConnection.OnScanCompletedListener() {
@@ -172,6 +177,9 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         }
     }
 
+    /**
+     * Plays the most recent audio file
+     */
     private void startPlaying() {
         mPlayer = new MediaPlayer();
         try {
@@ -183,11 +191,17 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         }
     }
 
+    /**
+     * Stops the currently playing audio file
+     */
     private void stopPlaying() {
         mPlayer.release();
         mPlayer = null;
     }
 
+    /**
+     * Requests current location
+     */
     protected void createLocationRequest() {
         locationRequest = new LocationRequest();
         locationRequest.setInterval(locationInterval);
@@ -220,22 +234,27 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         startActivityForResult(intent, RC_READ_FILE);
     }
 
-    /*
-
+    /**
+     * Checks whether Location service is enabled
      */
     public boolean isLocationServiceEnabled() {
         LocationManager locationManager = locationManager = (LocationManager) this.getSystemService(Context.LOCATION_SERVICE);
-        boolean gps_enabled = false;
+        boolean location_enabled = false;
 
         try {
-            gps_enabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER);
+            location_enabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER);
         } catch (Exception ex) {
             Log.e(LOG_TAG, ex.getMessage());
         }
 
-        return gps_enabled;
+        return location_enabled;
     }
 
+    /**
+     * Initializes ui, signs into google account and connects to google api
+     *
+     * @param savedInstanceState
+     */
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -274,7 +293,7 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
                     } else {
                         wantToRecord = true;
                         aManager.startBluetoothSco();
-                        Toast.makeText(getApplicationContext(), "Starting Bluetooth connection", Toast.LENGTH_LONG).show();
+                        showMessage("Starting Bluetooth connection");
                     }
                 } else {
                     wantToRecord = false;
@@ -330,6 +349,7 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         return GoogleSignIn.getClient(this, signInOptions);
     }
 
+
     @Override
     public void onStop() {
         if (mRecorder != null) {
@@ -349,6 +369,10 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         super.onStop();
     }
 
+    /**
+     * Ensure the SCO audio connection stays active in case the
+     * current initiator stops it.
+     */
     @Override
     protected void onResume() {
 
@@ -364,8 +388,6 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
             connected = true;
         }
         super.onResume();
-        // Ensure the SCO audio connection stays active in case the
-        // current initiator stops it.
     }
 
     @Override
@@ -401,8 +423,8 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
 
     /**
      * Called when the location has changed.
-     * <p>
-     * <p> There are no restrictions on the use of the supplied Location object.
+     * saves current location as a line in the .gpx location file
+     * initializes file if not existent
      *
      * @param location The new location, as a Location object.
      */
@@ -449,11 +471,14 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
 
     }
 
+    /**
+     * Reacts to intents, either by opening the map or initializing google drive
+     *
+     */
     public void onActivityResult(int requestCode, int resultCode, Intent intent) {
         super.onActivityResult(requestCode, resultCode, intent);
         if (requestCode == RC_READ_FILE && resultCode == Activity.RESULT_OK) {
             if (intent != null) {
-
                 Intent intentMap = new Intent(this, MapActivity.class);
                 intentMap.putExtra(EXTRA_COORDS, intent.getData());
                 startActivity(intentMap);
@@ -469,12 +494,14 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     private void initializeDriveClient(GoogleSignInAccount signInAccount) {
         driveClient = Drive.getDriveClient(getApplicationContext(), signInAccount);
         driveResourceClient = Drive.getDriveResourceClient(getApplicationContext(), signInAccount);
-        Toast toast = Toast.makeText(this, "Signed into Google Account", Toast.LENGTH_SHORT);
-        toast.show();
-
+        showMessage("Signed into Google Account");
     }
 
 
+    /**
+     * Saves the file to Google Drive and sets the MIME type
+     * @param file
+     */
     private void saveFileToDrive(final File file) {
         final Task<DriveFolder> appFolderTask = driveResourceClient.getRootFolder();
         final Task<DriveContents> createContentsTask = driveResourceClient.createContents();
