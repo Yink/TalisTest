@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.location.Location;
+import android.location.LocationManager;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.media.MediaRecorder;
@@ -23,14 +24,33 @@ import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.CompoundButton;
 import android.widget.Toast;
+import android.widget.ToggleButton;
 
+import com.google.android.gms.auth.api.signin.GoogleSignIn;
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
+import com.google.android.gms.auth.api.signin.GoogleSignInClient;
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.drive.Drive;
+import com.google.android.gms.drive.DriveClient;
+import com.google.android.gms.drive.DriveContents;
+import com.google.android.gms.drive.DriveFile;
+import com.google.android.gms.drive.DriveFolder;
+import com.google.android.gms.drive.DriveResourceClient;
+import com.google.android.gms.drive.MetadataChangeSet;
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.tasks.Continuation;
+import com.google.android.gms.tasks.OnFailureListener;
+import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.android.gms.tasks.Task;
+import com.google.android.gms.tasks.Tasks;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -64,8 +84,12 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     File audioFile;
     File locationFile;
     private static final int RC_READ_FILE = 42;
+    private static final int RC_SIGN_IN = 69;
     public static final String EXTRA_COORDS = "de.tu_darmstadt.jansen.nils.talistest.COORDS";
-
+    private GoogleSignInClient googleSignInClient;
+    private DriveClient driveClient;
+    private DriveResourceClient driveResourceClient;
+    Boolean toggle = false;
 
 
     private BroadcastReceiver bluetoothScoReceiver = new BroadcastReceiver() {
@@ -145,6 +169,10 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         } catch (IOException e) {
             Log.e(LOG_TAG, e.getMessage());
         }
+        if (toggle) {
+            saveFileToDrive(audioFile);
+            saveFileToDrive(locationFile);
+        }
     }
 
     private void startPlaying() {
@@ -195,7 +223,22 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         startActivityForResult(intent, RC_READ_FILE);
     }
 
-    //Default methods
+    /*
+
+     */
+    public boolean isLocationServiceEnabled() {
+        LocationManager locationManager = locationManager = (LocationManager) this.getSystemService(Context.LOCATION_SERVICE);
+        boolean gps_enabled = false;
+
+        try {
+            gps_enabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER);
+        } catch (Exception ex) {
+            Log.e(LOG_TAG, ex.getMessage());
+        }
+
+        return gps_enabled;
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -223,10 +266,14 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
             public void onClick(View v) {
                 if (!isRecording) {
                     //TODO
-                    if (true) {
-                        isRecording = true;
-                        startRecording();
-                        buttonRecord.setText("Stop recording");
+                    if (true) { //connected
+                        if (isLocationServiceEnabled()) {
+                            isRecording = true;
+                            startRecording();
+                            buttonRecord.setText("Stop recording");
+                        } else {
+                            showMessage("Please Enable Location Service");
+                        }
                     } else {
                         wantToRecord = true;
                         aManager.startBluetoothSco();
@@ -258,6 +305,14 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
             }
         });
 
+        ToggleButton toggleButton = findViewById(R.id.toggleButton);
+        toggleButton.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                toggle = isChecked;
+            }
+        });
+
         final Button buttonMap = findViewById(R.id.button_map);
         buttonMap.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -266,6 +321,16 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
             }
         });
 
+        googleSignInClient = buildGoogleSignInClient();
+        startActivityForResult(googleSignInClient.getSignInIntent(), RC_SIGN_IN);
+    }
+
+    private GoogleSignInClient buildGoogleSignInClient() {
+        GoogleSignInOptions signInOptions =
+                new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                        .requestScopes(Drive.SCOPE_FILE)
+                        .build();
+        return GoogleSignIn.getClient(this, signInOptions);
     }
 
     @Override
@@ -392,15 +457,77 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
 
     public void onActivityResult(int requestCode, int resultCode, Intent intent) {
         super.onActivityResult(requestCode, resultCode, intent);
-        if (requestCode == RC_READ_FILE) {
-            if (resultCode == Activity.RESULT_OK) {
-                if (intent != null) {
+        if (requestCode == RC_READ_FILE && resultCode == Activity.RESULT_OK) {
+            if (intent != null) {
 
-                    Intent intentMap = new Intent(this, MapActivity.class);
-                    intentMap.putExtra(EXTRA_COORDS, intent.getData());
-                    startActivity(intentMap);
-                }
+                Intent intentMap = new Intent(this, MapActivity.class);
+                intentMap.putExtra(EXTRA_COORDS, intent.getData());
+                startActivity(intentMap);
+            }
+        } else if (requestCode == RC_SIGN_IN && resultCode == Activity.RESULT_OK) {
+            Task<GoogleSignInAccount> getAccountTask = GoogleSignIn.getSignedInAccountFromIntent(intent);
+            if (getAccountTask.isSuccessful()) {
+                initializeDriveClient(getAccountTask.getResult());
             }
         }
     }
+
+    private void initializeDriveClient(GoogleSignInAccount signInAccount) {
+        driveClient = Drive.getDriveClient(getApplicationContext(), signInAccount);
+        driveResourceClient = Drive.getDriveResourceClient(getApplicationContext(), signInAccount);
+        Toast toast = Toast.makeText(this, "Signed into Google Account", Toast.LENGTH_SHORT);
+        toast.show();
+
+    }
+
+
+    private void saveFileToDrive(final File file) {
+        final Task<DriveFolder> appFolderTask = driveResourceClient.getRootFolder();
+        final Task<DriveContents> createContentsTask = driveResourceClient.createContents();
+        Tasks.whenAll(appFolderTask, createContentsTask)
+                .continueWithTask(new Continuation<Void, Task<DriveFile>>() {
+                    @Override
+                    public Task<DriveFile> then(@NonNull Task<Void> task) throws Exception {
+                        DriveFolder parent = appFolderTask.getResult();
+                        DriveContents contents = createContentsTask.getResult();
+                        byte[] b = new byte[(int) file.length()];
+                        FileInputStream fileInputStream = new FileInputStream(file);
+                        fileInputStream.read(b);
+                        OutputStream outputStream = contents.getOutputStream();
+                        outputStream.write(b);
+                        String mimeType;
+                        if (file.getName().contains(".gpx"))
+                            mimeType = "text/plain";
+                        else
+                            mimeType = "audio/3gp";
+                        MetadataChangeSet changeSet = new MetadataChangeSet.Builder()
+                                .setTitle(file.getName())
+                                .setMimeType(mimeType)
+                                .setStarred(true)
+                                .build();
+
+                        return driveResourceClient.createFile(parent, changeSet, contents);
+                    }
+                })
+                .addOnSuccessListener(this,
+                        new OnSuccessListener<DriveFile>() {
+                            @Override
+                            public void onSuccess(DriveFile driveFile) {
+                                showMessage("File uploaded to Google Drive successfully");
+                                //finish();
+                            }
+                        })
+                .addOnFailureListener(this, new OnFailureListener() {
+                    @Override
+                    public void onFailure(@NonNull Exception e) {
+                        Log.e(LOG_TAG, "Unable to create file", e);
+                        //finish();
+                    }
+                });
+    }
+
+    protected void showMessage(String message) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+    }
+
 }
