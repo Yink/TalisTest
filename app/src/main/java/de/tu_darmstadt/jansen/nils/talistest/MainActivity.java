@@ -69,7 +69,8 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     private final String datePattern = "yyyy-MM-dd-kk-mm-ss";
     private File audioFile;
     private File locationFile;
-    private boolean toggle = false;
+    private boolean toggle_drive = false;
+    private boolean toggle_bluetooth = true;
     private boolean isRecording = false;
     private boolean isPlaying = false;
     private MediaRecorder mRecorder = null;
@@ -171,7 +172,7 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         } catch (IOException e) {
             Log.e(LOG_TAG, e.getMessage());
         }
-        if (toggle) {
+        if (toggle_drive) {
             saveFileToDrive(audioFile);
             saveFileToDrive(locationFile);
         }
@@ -281,8 +282,7 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
             @Override
             public void onClick(View v) {
                 if (!isRecording) {
-                    //TODO
-                    if (true) { //connected
+                    if (connected || !toggle_bluetooth) {
                         if (isLocationServiceEnabled()) {
                             isRecording = true;
                             startRecording();
@@ -293,7 +293,7 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
                     } else {
                         wantToRecord = true;
                         aManager.startBluetoothSco();
-                        showMessage("Starting Bluetooth connection");
+                        showMessage("Trying to start bluetooth connection");
                     }
                 } else {
                     wantToRecord = false;
@@ -321,13 +321,22 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
             }
         });
 
-        ToggleButton toggleButton = findViewById(R.id.toggleButton);
-        toggleButton.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+        ToggleButton toggleButton_drive = findViewById(R.id.toggleButton);
+        toggleButton_drive.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-                toggle = isChecked;
+                toggle_drive = isChecked;
             }
         });
+
+        ToggleButton toggleButton_bluetooth = findViewById(R.id.toggleButton2);
+        toggleButton_bluetooth.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                toggle_bluetooth = isChecked;
+            }
+        });
+        toggleButton_bluetooth.setChecked(true);
 
         final Button buttonMap = findViewById(R.id.button_map);
         buttonMap.setOnClickListener(new View.OnClickListener() {
