@@ -72,12 +72,14 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     private boolean toggle_drive = false;
     private boolean toggle_bluetooth = true;
     private boolean isRecording = false;
+    private boolean isRecordingAudio = false;
     private boolean isPlaying = false;
     private MediaRecorder mRecorder = null;
     private MediaPlayer mPlayer = null;
     private boolean permissionToRecordAccepted = false;
     private File filePath;
-    private String fileName;
+    private String fileNameLocation;
+    private String fileNameAudio;
     private boolean connected = false;
     private Button buttonRecord;
     private AudioManager aManager;
@@ -85,8 +87,9 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     private GoogleApiClient googleApiClient;
     private long locationInterval = 10000;
     private LocationRequest locationRequest;
-    private Location currentLocation;
     private String currentTime;
+    private Location lastLocation;
+    private Integer lastLocationCount = 0;
     private DateFormat dateFormat;
     private GoogleSignInClient googleSignInClient;
     private DriveClient driveClient;
@@ -117,11 +120,19 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         }
 
         Date date = Calendar.getInstance().getTime();
-        fileName = dateFormat.format(date);
+        fileNameLocation = dateFormat.format(date);
+        startAudioRecording(fileNameLocation);
+        startLocationUpdates();
+
+    }
+
+    private void startAudioRecording(String name) {
+        isRecordingAudio = true;
+        fileNameAudio = name;
         mRecorder = new MediaRecorder();
         mRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
         mRecorder.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP);
-        audioFile = new File(filePath, fileName + ".3gp");
+        audioFile = new File(filePath, fileNameAudio + ".3gp");
 
         if (!audioFile.exists()) {
             try {
@@ -136,29 +147,26 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
 
         try {
             mRecorder.prepare();
-            startLocationUpdates();
             mRecorder.start();
             Log.d(LOG_TAG, audioFile.getAbsolutePath());
         } catch (IOException e) {
             Log.e(LOG_TAG, "MediaRecorder.prepare() failed: " + e.getMessage());
             showMessage("MediaRecorder.prepare() failed");
         }
-
     }
 
     /**
      * Stops mediarecorder, saves audio and location files
      */
     private void stopRecording() {
-        mRecorder.stop();
-        MediaScannerConnection.scanFile(this, new String[]{audioFile.getAbsolutePath(), locationFile.getAbsolutePath()}, null, new MediaScannerConnection.OnScanCompletedListener() {
+        if (isRecordingAudio)
+            stopAudioRecording();
+        MediaScannerConnection.scanFile(this, new String[]{locationFile.getAbsolutePath()}, null, new MediaScannerConnection.OnScanCompletedListener() {
             @Override
             public void onScanCompleted(String path, Uri uri) {
                 Log.d(LOG_TAG, path + " successfully scanned");
             }
         });
-        mRecorder.release();
-        mRecorder = null;
         stopLocationUpdates();
         OutputStream outputStream = null;
         try {
@@ -173,9 +181,24 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
             Log.e(LOG_TAG, e.getMessage());
         }
         if (toggle_drive) {
-            saveFileToDrive(audioFile);
             saveFileToDrive(locationFile);
         }
+    }
+
+    private void stopAudioRecording() {
+        mRecorder.stop();
+        MediaScannerConnection.scanFile(this, new String[]{audioFile.getAbsolutePath()}, null, new MediaScannerConnection.OnScanCompletedListener() {
+            @Override
+            public void onScanCompleted(String path, Uri uri) {
+                Log.d(LOG_TAG, path + " successfully scanned");
+            }
+        });
+        mRecorder.release();
+        mRecorder = null;
+        if (toggle_drive) {
+            saveFileToDrive(audioFile);
+        }
+        isRecordingAudio = false;
     }
 
     /**
@@ -184,7 +207,7 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     private void startPlaying() {
         mPlayer = new MediaPlayer();
         try {
-            mPlayer.setDataSource(filePath.getAbsolutePath() + "/" + fileName + ".3gp");
+            mPlayer.setDataSource(filePath.getAbsolutePath() + "/" + fileNameAudio + ".3gp");
             mPlayer.prepare();
             mPlayer.start();
         } catch (IOException e) {
@@ -297,8 +320,8 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
                     }
                 } else {
                     wantToRecord = false;
-                    isRecording = false;
                     stopRecording();
+                    isRecording = false;
                     buttonRecord.setText("Start recording");
                 }
             }
@@ -439,10 +462,31 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
      */
     @Override
     public void onLocationChanged(Location location) {
-        currentLocation = location;
+        double distance;
         Date date = Calendar.getInstance().getTime();
         currentTime = dateFormat.format(date);
-        locationFile = new File(filePath, fileName + ".gpx");
+        if (lastLocationCount == 0)
+            lastLocation = location;
+        else if (lastLocationCount == 10) {
+            distance = Math.sqrt(Math.pow(Math.abs(location.getLatitude() - lastLocation.getLatitude()), 2) + Math.pow(Math.abs(location.getLongitude() - lastLocation.getLongitude()), 2));
+            lastLocationCount = 0;
+
+            if (distance < 0.0001) {
+                if (isRecordingAudio) {
+                    stopAudioRecording();
+                    isRecordingAudio = false;
+                    showMessage("Stopped recording audio data for now");
+                }
+            } else {
+                if (!isRecordingAudio) {
+                    startAudioRecording(currentTime);
+                    isRecordingAudio = true;
+                    showMessage("Started recording audio data again");
+                }
+            }
+        }
+        lastLocationCount += 1;
+        locationFile = new File(filePath, fileNameLocation + ".gpx");
         FileOutputStream outputStream = null;
         if (!locationFile.exists()) {
             try {
@@ -450,7 +494,7 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
                 outputStream = new FileOutputStream(locationFile, false);
                 outputStream.write(("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
                         "<gpx version=\"1.0\">\n" +
-                        "\t<trk><name>Route from " + fileName + "</name><number>1</number><trkseg>\n").getBytes());
+                        "\t<trk><name>Route from " + fileNameLocation + "</name><number>1</number><trkseg>\n").getBytes());
             } catch (IOException e) {
                 Log.e(LOG_TAG, e.getMessage());
             }
