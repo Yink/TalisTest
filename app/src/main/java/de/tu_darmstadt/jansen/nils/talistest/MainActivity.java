@@ -25,6 +25,7 @@ import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.CompoundButton;
+import android.widget.EditText;
 import android.widget.Toast;
 import android.widget.ToggleButton;
 
@@ -72,7 +73,7 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     private boolean toggle_drive = false;
     private boolean toggle_bluetooth = true;
     private boolean isRecording = false;
-    private boolean isRecordingAudio = false;
+    private boolean isRecordingAudio = true;
     private boolean isPlaying = false;
     private MediaRecorder mRecorder = null;
     private MediaPlayer mPlayer = null;
@@ -86,6 +87,7 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     private boolean wantToRecord = false;
     private GoogleApiClient googleApiClient;
     private long locationInterval = 10000;
+    private double locationThreshold = 0.0001;
     private LocationRequest locationRequest;
     private String currentTime;
     private Location lastLocation;
@@ -123,11 +125,9 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         fileNameLocation = dateFormat.format(date);
         startAudioRecording(fileNameLocation);
         startLocationUpdates();
-
     }
 
     private void startAudioRecording(String name) {
-        isRecordingAudio = true;
         fileNameAudio = name;
         mRecorder = new MediaRecorder();
         mRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
@@ -155,19 +155,26 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         }
     }
 
+    public double getAmplitude() {
+        if (mRecorder != null)
+            return mRecorder.getMaxAmplitude();
+        else
+            return 0;
+    }
+
     /**
      * Stops mediarecorder, saves audio and location files
      */
     private void stopRecording() {
-        if (isRecordingAudio)
-            stopAudioRecording();
+        stopLocationUpdates();
+        stopAudioRecording();
         MediaScannerConnection.scanFile(this, new String[]{locationFile.getAbsolutePath()}, null, new MediaScannerConnection.OnScanCompletedListener() {
             @Override
             public void onScanCompleted(String path, Uri uri) {
                 Log.d(LOG_TAG, path + " successfully scanned");
             }
         });
-        stopLocationUpdates();
+
         OutputStream outputStream = null;
         try {
             try {
@@ -183,22 +190,29 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         if (toggle_drive) {
             saveFileToDrive(locationFile);
         }
+        isRecording = true;
+        lastLocationCount = 0;
     }
 
     private void stopAudioRecording() {
         mRecorder.stop();
-        MediaScannerConnection.scanFile(this, new String[]{audioFile.getAbsolutePath()}, null, new MediaScannerConnection.OnScanCompletedListener() {
-            @Override
-            public void onScanCompleted(String path, Uri uri) {
-                Log.d(LOG_TAG, path + " successfully scanned");
-            }
-        });
         mRecorder.release();
         mRecorder = null;
-        if (toggle_drive) {
-            saveFileToDrive(audioFile);
+        if (isRecordingAudio) {
+            MediaScannerConnection.scanFile(this, new String[]{audioFile.getAbsolutePath()}, null, new MediaScannerConnection.OnScanCompletedListener() {
+                @Override
+                public void onScanCompleted(String path, Uri uri) {
+                    Log.d(LOG_TAG, path + " successfully scanned");
+                }
+            });
+            if (toggle_drive) {
+                saveFileToDrive(audioFile);
+            }
+        } else {
+            audioFile.delete();
+            isRecordingAudio = true;
         }
-        isRecordingAudio = false;
+
     }
 
     /**
@@ -462,28 +476,39 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
      */
     @Override
     public void onLocationChanged(Location location) {
+        EditText editThreshold = findViewById(R.id.editText_thresh);
+        double amplitude = 0;
         double distance;
         Date date = Calendar.getInstance().getTime();
         currentTime = dateFormat.format(date);
-        if (lastLocationCount == 0)
+        if (lastLocationCount == 0) {
             lastLocation = location;
-        else if (lastLocationCount == 10) {
-            distance = Math.sqrt(Math.pow(Math.abs(location.getLatitude() - lastLocation.getLatitude()), 2) + Math.pow(Math.abs(location.getLongitude() - lastLocation.getLongitude()), 2));
-            lastLocationCount = 0;
-
-            if (distance < 0.0001) {
+            amplitude = getAmplitude();
+        } else if (lastLocationCount % 2 == 0) {
+            Integer threshold = Integer.parseInt(editThreshold.getText().toString());
+            if (/*distance < locationThreshold ||*/ getAmplitude() < threshold) {
                 if (isRecordingAudio) {
+                    showMessage("Stopped recording audio data for now");
                     stopAudioRecording();
                     isRecordingAudio = false;
-                    showMessage("Stopped recording audio data for now");
+                    startAudioRecording("test");
                 }
             } else {
                 if (!isRecordingAudio) {
-                    startAudioRecording(currentTime);
-                    isRecordingAudio = true;
                     showMessage("Started recording audio data again");
+                    stopAudioRecording();
+                    startAudioRecording(currentTime);
                 }
             }
+        } else if (lastLocationCount == 99) {
+            distance = Math.sqrt(Math.pow(Math.abs(location.getLatitude() - lastLocation.getLatitude()), 2) + Math.pow(Math.abs(location.getLongitude() - lastLocation.getLongitude()), 2));
+            if (distance < locationThreshold) {
+                stopRecording();
+                buttonRecord.setText("Start recording");
+                isRecording = false;
+                showMessage("Suspended recording because of inactivity");
+            }
+            lastLocationCount = -1;
         }
         lastLocationCount += 1;
         locationFile = new File(filePath, fileNameLocation + ".gpx");
